@@ -1,5 +1,6 @@
 ---
 title: "Preparing DEMs for soil mapping"
+bibliography: references.bib
 ---
 
 ## Introduction
@@ -33,3 +34,100 @@ leaflet() %>%
 
 # todo - add a couple of A-B profile line plots?
 ```
+
+### On-disk storage
+
+The next tool I will be using can't directly consume in-memory R objects like the one above, so lets write the DEM to a file it can access.
+
+```{r}
+writeRaster(mw, 'maungawhau_hr.tif', 
+            datatype = 'FLT4S', gdal = ('COMPRESS=LZW'),
+            overwrite = TRUE)
+```
+
+### Noise removal
+
+Most high-resolution DEMs have a certain amount of local surface roughness. Some of that is random noise, some of it is related to vegetation patterns (like grassed areas) or landscape alterations (like tillage marks), and some is left over from standard production steps like building removal.
+
+Much of this can be removed using the Feature Preserving Smoothing method of @lindsay2019, available in the [WhiteBoxTools](https://www.whiteboxgeo.com/) geospatial data analysis platform. This software can be used on the command line or accessed in programming environments using wrapper packages. One such package exists for R:
+
+```{r}
+library(whitebox)
+```
+
+The default settings for the Feature Preserving Smoothing tool have been shown to be effective in a broad range of situations, so let's apply them here:
+
+```{r}
+wbt_feature_preserving_smoothing(
+  dem       = 'maungawhau_hr.tif',
+  output    = 'maungawhau_hr_FPS.tif',
+  filter    = 11,
+  norm_diff = 15,
+  num_iter  = 3,
+  max_diff  = 0.5,
+  zfactor = NULL,
+  wd = getwd(),
+  verbose_mode = FALSE,
+  compress_rasters = TRUE,
+  command_only = FALSE
+)
+
+mw_fps <- rast('maungawhau_hr_FPS.tif')
+```
+
+The effect of this tool is quite subtle; the best way to quickly check the output is visually, by generating before-and-after hillshades. This is done below using GDAL:
+
+```{r}
+source('gdal_env.R') # sets a few necessary environment variables
+
+system2('gdaldem', args = c('hillshade', '-multidirectional',
+                            'maungawhau_hr.tif',
+                            'mw_hillshade.tif'))
+
+system2('gdaldem', args = c('hillshade', '-multidirectional',
+                            'maungawhau_hr_FPS.tif',
+                            'mw_FPS_hillshade.tif'))
+
+mw_hs <- rast('mw_hillshade.tif')
+mw_fps_hs <- rast('mw_fps_hillshade.tif')
+```
+
+Zooming in a bit, the results clearly show a smoother surface post-processing, without the loss of larger scale structure that can occur when de-noising using low-pass filters.
+
+```{r}
+library(sf)
+library(tmap)
+
+palg <- scico(255, palette = 'grayC', direction = -1)
+
+hss <- c(mw_hs, mw_fps_hs)
+names(hss) <- c('Before', 'After')
+
+tm_shape(hss, unit= 'm',
+         bbox = st_bbox(c('xmin' = 2667800, 'xmax' = 2667950,
+                          'ymin' = 6479100,  'ymax' = 6479250))) +
+  tm_raster(palette = palg, style = 'cont', legend.show = FALSE) +
+  tm_scale_bar(text.size = 1)
+```
+
+Another way to verify the effect is to look at slope values:
+
+```{r}
+mw_slp <- terrain(mw)
+mw_fps_slp <- terrain(mw_fps)
+slps <- c(mw_slp, mw_fps_slp)
+names(slps) <- c('Before', 'After')
+
+tm_shape(slps,
+         bbox = st_bbox(c('xmin' = 2667800, 'xmax' = 2667950,
+                          'ymin' = 6479100,  'ymax' = 6479250))) +
+  tm_raster(palette = pal, style = 'fixed',
+            breaks = c(0,3,7,11,15,25,35,42,60),
+            labels = c('A', 'B', 'C-', 'C+' ,'D', 'E', 'F', 'G'),
+            title = 'Slope Class',
+            legend.is.portrait = FALSE,
+            alpha = 0.8) + 
+  tm_layout(legend.outside.position = 'bottom')
+```
+
+Post-processing, slope category patches have smoother edges and a more coherent structure.
