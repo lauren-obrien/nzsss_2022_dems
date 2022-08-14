@@ -3,3 +3,33 @@ title: "Preparing DEMs for soil mapping"
 ---
 
 ## Introduction
+
+This document runs through some LiDAR DEM preparation steps that can be helpful when modelling soils and landscapes.
+
+### Demo data
+
+I am using a demonstration dataset that Pierre Roudier has kindly made available in his R package '[hillshader](https://github.com/pierreroudier/hillshader)'. The dataset `maungawhau_hr` is a 1 m resolution DEM of Maungawhau, in Auckland.
+
+```{r}
+library(terra)
+library(hillshader)
+
+mw <- rast(maungawhau_hr)
+mw
+```
+
+```{r}
+#| echo: false
+#| column: screen
+  
+library(leaflet)
+library(scico)
+
+pal <- scico(30, palette = 'batlow')
+
+leaflet() %>% 
+  addTiles() %>% 
+  addRasterImage(mw, opacity= 0.7, colors = pal)
+
+# todo - add a couple of A-B profile line plots?
+```

@@ -3,3 +3,12 @@ project:
 
 editor: visual
 
+knitr:
+  opts_chunk:
+    comment: "#>"
+    collapse: true
+    out.width: '85%'
+    fig.align: 'center'
+    echo: false
+    fig.show: 'hold'
+    results: 'hold'
