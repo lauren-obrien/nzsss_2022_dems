@@ -1,14 +1,20 @@
 project:
-  title: "nzsss_2022_dems"
+  title: "NZSSS 2022 DEM poster"
 
 editor: visual
+
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 4
 
 knitr:
   opts_chunk:
     comment: "#>"
     collapse: true
-    out.width: '85%'
     fig.align: 'center'
-    echo: false
     fig.show: 'hold'
     results: 'hold'
+    warning: false
+    message: false

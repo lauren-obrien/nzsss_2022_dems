@@ -5,39 +5,95 @@ bibliography: references.bib
 
 ## Introduction
 
-This document runs through some LiDAR DEM preparation steps that can be helpful when modelling soils and landscapes.
+This document runs through some lidar DEM preparation steps that can be helpful when modelling soils and landscapes.
 
 ### Demo data
 
 I am using a demonstration dataset that Pierre Roudier has kindly made available in his R package '[hillshader](https://github.com/pierreroudier/hillshader)'. The dataset `maungawhau_hr` is a 1 m resolution DEM of Maungawhau, in Auckland.
 
 ```{r}
+# use the dev versions from github for terra and hillshader
+library(tidyverse)
+library(sf)
 library(terra)
-library(hillshader)
+library(leaflet)
+library(scico)
+library(hillshader) 
+library(ggspatial)
+library(patchwork)
+library(extrafont)
+loadfonts(quiet = TRUE)
+```
 
+```{r}
 mw <- rast(maungawhau_hr)
 mw
+
+# generate a quick hillshade for visualisation
+mw_hs <- hillshader(raster::raster(mw))
+mw_hs <- rast(mw_hs)
+crs(mw_hs) <- crs(mw) # loop through raster breaks proj string :/
 ```
 
 ```{r}
 #| echo: false
 #| column: screen
   
-library(leaflet)
-library(scico)
-
 pal <- scico(30, palette = 'batlow')
+palg <- scico(256, palette = 'grayC', direction = -1)
 
-leaflet() %>% 
-  addTiles() %>% 
-  addRasterImage(mw, opacity= 0.7, colors = pal)
+leaflet() |>
+  addTiles() |>
+  addRasterImage(mw_hs, opacity = 0.5, colors = palg, group = 'elevation') |>
+  addRasterImage(mw, opacity = 0.5, colors = pal, group = 'elevation')|> 
+  addLayersControl(overlayGroups = 'elevation') 
 
 # todo - add a couple of A-B profile line plots?
 ```
 
-### On-disk storage
+```{r}
+#| echo: false
 
-The next tool I will be using can't directly consume in-memory R objects like the one above, so lets write the DEM to a file it can access.
+# ggplot for poster
+mw_df <- mw |> as.data.frame(xy = TRUE, na.rm = FALSE)
+mw_hsh_df <- mw_hs |> as.data.frame(xy = TRUE, na.rm = FALSE)
+
+ggplot(mw_df) +
+  annotate(geom = 'raster', x = mw_hsh_df$x, y = mw_hsh_df$y,
+               fill = scales::colour_ramp(
+                 c("black", "white"))(mw_hsh_df$layer)) +
+  geom_raster(data = mw_df, aes(x = x , y = y, fill = akl.lidar),
+              alpha = 0.5) +
+  scale_fill_scico(palette = 'batlow') +
+  theme_void() +
+  theme(axis.title = element_blank(),
+        text = element_text(family = 'Ebrima')) +
+  #annotate(geom = 'rect', xmin =, ymin, xmax, ymax)
+  ggspatial::annotation_scale(location = 'tr', 
+                              text_family = 'Ebrima',
+                              text_col = 'white',
+                              text_face = 'bold',
+                              pad_x = unit(0.8, "cm"),
+                              pad_y = unit(1.2, "cm"),
+                              width_hint = 0.2) +
+  labs(fill = 'Elevation (m)') +
+  coord_equal()
+  
+ggsave(file.path('figures', 'Maungawhau_raw.png'),
+       bg = 'white')
+```
+
+### Noise removal
+
+Most high-resolution DEMs have a certain amount of local surface roughness. Some of that is random noise, some of it is related to vegetation patterns (like grassed areas) or landscape alterations (like tillage marks), and some is left over from standard production steps like building removal. The variability often only ranges across a few centimeters, but it can cause exaggerated and messy results when calculating slope and other derived parameters.
+
+Much of this noise can be removed using the Feature Preserving Smoothing method of @lindsay2019, available in the [WhiteBoxTools](https://www.whiteboxgeo.com/) (WBT) geospatial data analysis platform. This software can be used on the command line or accessed in programming environments using wrapper packages. One such package exists for R:
+
+```{r}
+library(whitebox)
+```
+
+Unfortunately `whitebox` can't directly consume in-memory R objects like the one above, so we must write the DEM to an on-disk file that it can access:
 
 ```{r}
 writeRaster(mw, 'maungawhau_hr.tif', 
@@ -45,17 +101,7 @@ writeRaster(mw, 'maungawhau_hr.tif',
             overwrite = TRUE)
 ```
 
-### Noise removal
-
-Most high-resolution DEMs have a certain amount of local surface roughness. Some of that is random noise, some of it is related to vegetation patterns (like grassed areas) or landscape alterations (like tillage marks), and some is left over from standard production steps like building removal.
-
-Much of this can be removed using the Feature Preserving Smoothing method of @lindsay2019, available in the [WhiteBoxTools](https://www.whiteboxgeo.com/) geospatial data analysis platform. This software can be used on the command line or accessed in programming environments using wrapper packages. One such package exists for R:
-
-```{r}
-library(whitebox)
-```
-
-The default settings for the Feature Preserving Smoothing tool have been shown to be effective in a broad range of situations, so let's apply them here:
+Now we can denoise. The default settings for the Feature Preserving Smoothing tool have been shown to be effective in a broad range of situations, so let's apply them here:
 
 ```{r}
 wbt_feature_preserving_smoothing(
@@ -65,69 +111,240 @@ wbt_feature_preserving_smoothing(
   norm_diff = 15,
   num_iter  = 3,
   max_diff  = 0.5,
-  zfactor = NULL,
   wd = getwd(),
-  verbose_mode = FALSE,
-  compress_rasters = TRUE,
-  command_only = FALSE
+  compress_rasters = TRUE
 )
 
 mw_fps <- rast('maungawhau_hr_FPS.tif')
 ```
 
-The effect of this tool is quite subtle; the best way to quickly check the output is visually, by generating before-and-after hillshades. This is done below using GDAL:
+The effect of this tool is quite subtle; the easiest way to quickly check the output is visually, by comparing before-and-after hillshades:
 
 ```{r}
-source('gdal_env.R') # sets a few necessary environment variables
-
-system2('gdaldem', args = c('hillshade', '-multidirectional',
-                            'maungawhau_hr.tif',
-                            'mw_hillshade.tif'))
-
-system2('gdaldem', args = c('hillshade', '-multidirectional',
-                            'maungawhau_hr_FPS.tif',
-                            'mw_FPS_hillshade.tif'))
-
-mw_hs <- rast('mw_hillshade.tif')
-mw_fps_hs <- rast('mw_fps_hillshade.tif')
+mw_fps_hs <- hillshader(raster::raster(mw_fps))
+mw_fps_hs <- rast(mw_fps_hs)
+crs(mw_fps_hs) <- crs(mw_fps) 
 ```
 
-Zooming in a bit, the results clearly show a smoother surface post-processing, without the loss of larger scale structure that can occur when de-noising using low-pass filters.
+```{r}
+#| echo: false 
+mw_fps_df <- mw_fps |> as.data.frame(xy = TRUE, na.rm = FALSE)
+mw_fps_hsh_df <- mw_fps_hs |> as.data.frame(xy = TRUE, na.rm = FALSE)
+
+ggplot() +
+  annotate(geom = 'raster', x = mw_fps_hsh_df$x, y = mw_fps_hsh_df$y,
+               fill = scales::colour_ramp(
+                 c("black", "white"))(mw_fps_hsh_df$layer)) +
+  geom_raster(data = mw_fps_df, aes(x = x , y = y, fill = maungawhau_hr_FPS),
+              alpha = 0.5) +
+  scale_fill_scico(palette = 'batlow') +
+  theme_void() +
+  theme(axis.title = element_blank(),
+        text = element_text(family = 'Ebrima')) +
+  #annotate(geom = 'rect', xmin =, ymin, xmax, ymax)
+  ggspatial::annotation_scale(location = 'tr', 
+                              text_family = 'Ebrima',
+                              text_col = 'white',
+                              text_face = 'bold',
+                              pad_x = unit(0.8, "cm"),
+                              pad_y = unit(1.2, "cm"),
+                              width_hint = 0.2) +
+  labs(fill = 'Elevation (m)') +
+  coord_equal()
+  
+ggsave(file.path('figures', 'Maungawhau_FPS.png'),
+       bg = 'white')
+```
+
+Zooming in on Tahaki Reserve, the results clearly show a smoother surface post-processing, without the loss of larger scale structure that can occur when denoising using low-pass filters.
 
 ```{r}
-library(sf)
-library(tmap)
+#| echo: false
 
-palg <- scico(255, palette = 'grayC', direction = -1)
+hss <- rast(list("Before" = mw_hs, "After" = mw_fps_hs)) |>
+  crop(y = ext(c('xmin' = 2667500, 'xmax' = 2667650,
+                 'ymin' = 6479375,  'ymax' = 6479525))) |>
+  as.data.frame(xy = TRUE, na.rm = FALSE) |>
+  pivot_longer(cols = c(Before, After),
+               names_to = 'maplayer', values_to = 'value') |>
+  mutate(maplayer = factor(maplayer, levels = c('Before', 'After'), ordered = TRUE))
 
-hss <- c(mw_hs, mw_fps_hs)
-names(hss) <- c('Before', 'After')
+scale_params <- tibble::tibble(
+    maplayer = 'After',
+    width_hint = 0.25,
+    style = c("bar"),
+    location = "tr",
+    unit_category = c("metric"),
+    text_col = c("black"),
+    line_col = c("black"),
+    text_family = 'Ebrima',
+     
+    text_face = 'bold'
+    )
 
-tm_shape(hss, unit= 'm',
-         bbox = st_bbox(c('xmin' = 2667800, 'xmax' = 2667950,
-                          'ymin' = 6479100,  'ymax' = 6479250))) +
-  tm_raster(palette = palg, style = 'cont', legend.show = FALSE) +
-  tm_scale_bar(text.size = 1)
+zoom_1 <-
+ggplot(hss) +
+  geom_raster(aes(x = x , y = y, fill = value, group = maplayer),
+              show.legend = FALSE) +
+  annotate(geom = 'rect', 
+           'xmin' = 2667500, 'xmax' = 2667650,
+           'ymin' = 6479375,  'ymax' = 6479525,
+           colour = 'grey20', fill = NA) +
+  scale_fill_gradient(low = '#000000', high = "#ffffff") +
+  facet_wrap(~maplayer) +
+  theme_void() +
+  theme(text = element_text(family = 'Ebrima',
+                            size = 18)) +
+  # bug: scalebar and facets interact to screw with factor ordering
+  #ggspatial::annotation_scale(data = scale_params,
+  #                            aes(
+  #                              width_hint = width_hint,
+  #                              location = location,
+  #                                ),
+  #                            pad_x = unit(0.8, "cm"),
+  #                            pad_y = unit(0.8, "cm")) +
+  coord_equal()
+
+ggsave(
+  file.path('figures', 'DEM_zoom_01.png'),
+  plot = zoom_1, bg = 'white')
+
+zoom_1
 ```
 
 Another way to verify the effect is to look at slope values:
 
 ```{r}
-mw_slp <- terrain(mw)
+#| echo: false
+mw_slp <- terrain(mw) # slope is the default
 mw_fps_slp <- terrain(mw_fps)
-slps <- c(mw_slp, mw_fps_slp)
+slps <- rast(list(mw_slp, mw_fps_slp))
 names(slps) <- c('Before', 'After')
-
-tm_shape(slps,
-         bbox = st_bbox(c('xmin' = 2667800, 'xmax' = 2667950,
-                          'ymin' = 6479100,  'ymax' = 6479250))) +
-  tm_raster(palette = pal, style = 'fixed',
-            breaks = c(0,3,7,11,15,25,35,42,60),
-            labels = c('A', 'B', 'C-', 'C+' ,'D', 'E', 'F', 'G'),
-            title = 'Slope Class',
-            legend.is.portrait = FALSE,
-            alpha = 0.8) + 
-  tm_layout(legend.outside.position = 'bottom')
 ```
 
-Post-processing, slope category patches have smoother edges and a more coherent structure.
+```{r}
+
+# leaflet
+```
+
+Post-processing, slope category patches have smoother edges and a more coherent structure, with less speckling.
+
+### Aggregation
+
+To show the effects of calculating derivatives before and after aggregation:
+
+```{r}
+
+mw_fps_10 <- aggregate(mw_fps, 10, cores = 3)
+
+mw_fps_slp_10 <- terrain(mw_fps_10) 
+
+# we already calculated 1m slope above in `mw_fps_slp`, now agg:
+mw_fps_slp_10b <- aggregate(mw_fps_slp, 10, cores = 3)
+
+# another thing we can do is take a focal mean at the target resolution
+# before aggregating
+circ10 <- focalMat(mw, 4, type = 'circle') # 9x9 cells - must be odd
+mw_fps_slp_fm10 <- focal(mw_fps_slp, w = circ10, fun = 'mean')
+mw_fps_slp_10c <- aggregate(mw_fps_slp_fm10, 10, cores = 3)
+
+slps_10 <- c(mw_fps_slp_10, mw_fps_slp_10b, mw_fps_slp_10c)
+names(slps_10) <- c('Aggregate First', 'Derive First', 'Derive and Smooth')
+
+hss_10_af <- hillshader(raster::raster(slps_10[[1]]))
+hss_10_af <- rast(hss_10_af)
+crs(hss_10_af) <- crs(slps_10)
+
+# leaflet
+
+```
+
+Its clear that aggregating first preserves far less detail as cell size increases. However, deriving first produces a noisier map that may have some unrealistic local changes in slope. This is where a low-pass filter actually becomes useful.
+
+```{r}
+# summary stats
+summary(values(slps_10[[1]]), na.rm = TRUE)
+summary(values(slps_10[[2]]), na.rm = TRUE)
+summary(values(slps_10[[3]]), na.rm = TRUE)
+
+hist(values(slps_10[[1]]), na.rm = TRUE)
+hist(values(slps_10[[2]]), na.rm = TRUE)
+hist(values(slps_10[[3]]), na.rm = TRUE)
+```
+
+### ROTO
+
+data prepped earlier, just plotting:
+
+```{r}
+# prepped earlier off some of the horizons pg DSM
+kumeroa_hs <- rast('Kumeroa_HSH_1m.tif')
+kumeroa <- rast('Kumeroa_DSM_1m.tif')
+
+kumeroa_roto_hs <- rast('Kumeroa_ROTO_FPS_HSH_1m.tif')
+kumeroa_roto <- rast('Kumeroa_ROTO_FPS_DSM_1m.tif')
+
+# leaflet
+```
+
+slope vis
+
+```{r}
+kumeroa_slp <- terrain(kumeroa)
+kumeroa_roto_slp <- terrain(kumeroa_roto)
+k_slps <- rast(list(kumeroa_slp, kumeroa_roto_slp))
+names(k_slps) <- c('Before', 'After')
+```
+
+```{r}
+
+# leaflet
+```
+
+zonal stats on the slope DEM
+
+make zones from more general slope classes:
+
+```{r}
+k_slp_rcl <- matrix(c(-Inf, 10, 1,
+                    10, 25, 2,
+                    25, Inf, 3), byrow =TRUE, ncol = 3)
+
+k_slp_zn <- classify(kumeroa_slp, k_slp_rcl)
+
+zonal(kumeroa_slp, k_slp_zn, fun = mean)
+
+#slope     slope
+#1     1  4.919757
+#2     2 16.514377
+#3     3 41.061947
+
+zonal(kumeroa_roto_slp, k_slp_zn, fun = mean) 
+
+#  slope     slope
+#1     1  2.833946
+#2     2 14.721392
+#3     3 30.537655
+
+# more sensibly, ncells on the full slope classification
+
+k_slp_rcl_2 <- matrix(c(  -Inf,   3, 1, # 'A'
+                             3,   7, 2, # 'B'
+                             7,  11, 3, # 'C-'
+                            11,  15, 4, # 'C+'
+                            15,  25, 5, # 'D'
+                            25,  35, 6, # 'E'
+                            35,  42, 7, # 'F'
+                            42, Inf, 8  # 'G'
+                          ), ncol = 3, byrow = TRUE)
+
+k_slp_zn <- classify(kumeroa_slp, k_slp_rcl_2)
+k_roto_slp_zn <- classify(kumeroa_roto_slp, k_slp_rcl_2)
+
+freq(k_slp_zn)
+
+freq(k_roto_slp_zn)
+
+
+
+```

@@ -1,0 +1,623 @@
+---
+title: "ggplots for poster"
+editor: visual
+---
+
+Same stuff as the main doc, just less chitchat
+
+```{r}
+# use the dev versions from github for terra and hillshader
+library(tidyverse)
+library(sf)
+library(terra)
+library(leaflet)
+library(scico)
+library(hillshader) 
+library(ggspatial)
+library(patchwork)
+library(extrafont)
+loadfonts(quiet = TRUE)
+```
+
+load demo data
+
+```{r}
+mw <- rast(maungawhau_hr)
+
+# generate a quick hillshade for visualisation
+mw_hs <- hillshader(raster::raster(mw))
+mw_hs <- rast(mw_hs)
+crs(mw_hs) <- crs(mw)
+```
+
+### Pre-treatment
+
+```{r}
+mw_df <- mw |> as.data.frame(xy = TRUE, na.rm = FALSE)
+mw_hsh_df <- mw_hs |> as.data.frame(xy = TRUE, na.rm = FALSE)
+```
+
+```{r}
+mw_ext <- ext(mw)
+
+plot_1 <-
+ggplot(mw_df) +
+  annotate(geom = 'raster', x = mw_hsh_df$x, y = mw_hsh_df$y,
+               fill = scales::colour_ramp(
+                 c("black", "white"))(mw_hsh_df$layer)) +
+  geom_raster(data = mw_df, aes(x = x , y = y, fill = akl.lidar),
+              alpha = 0.5) +
+  scale_fill_scico(palette = 'batlow') +
+  theme_void() +
+  theme(axis.title = element_blank(),
+        text = element_text(family = 'Ebrima')) +
+  annotate(geom = 'rect', colour = 'grey20', fill = NA,
+           # align box to cells
+           xmin = mw_ext[1] + 0.5, ymin = mw_ext[3] + 0.5, 
+           xmax = mw_ext[2] + 0.5, ymax = mw_ext[4] + 0.5) +
+  ggspatial::annotation_scale(location = 'tr', 
+                              text_family = 'Ebrima',
+                              text_col = 'white',
+                              text_face = 'bold',
+                              pad_x = unit(0.9, "cm"),
+                              pad_y = unit(1.2, "cm"),
+                              width_hint = 0.2) +
+  labs(fill = 'Elevation (m)') +
+  coord_equal()
+
+plot_1
+```
+
+```{r}
+#| eval: false
+ggsave(file.path('figures', 'Maungawhau_raw.png'),
+       plot = plot_1, bg = 'white', 
+       height = 18.17, width = 29.7, units = 'cm')
+```
+
+### FPS
+
+```{r}
+mw_fps <- rast('maungawhau_hr_FPS.tif')
+mw_fps_hs <- hillshader(raster::raster(mw_fps))
+mw_fps_hs <- rast(mw_fps_hs)
+crs(mw_fps_hs) <- crs(mw_fps) 
+```
+
+```{r}
+mw_fps_df <- mw_fps |> as.data.frame(xy = TRUE, na.rm = FALSE)
+mw_fps_hsh_df <- mw_fps_hs |> as.data.frame(xy = TRUE, na.rm = FALSE)
+```
+
+```{r}
+plot_2 <-
+ggplot() +
+  annotate(geom = 'raster', x = mw_fps_hsh_df$x, y = mw_fps_hsh_df$y,
+               fill = scales::colour_ramp(
+                 c("black", "white"))(mw_fps_hsh_df$layer)) +
+  geom_raster(data = mw_fps_df, aes(x = x , y = y, 
+                                    fill = maungawhau_hr_FPS),
+              alpha = 0.5) +
+  scale_fill_scico(palette = 'batlow') +
+  theme_void() +
+  theme(axis.title = element_blank(),
+        text = element_text(family = 'Ebrima')) +
+  annotate(geom = 'rect', colour = 'grey20', fill = NA,
+           xmin = mw_ext[1] + 0.5, ymin = mw_ext[3] + 0.5, 
+           xmax = mw_ext[2] + 0.5, ymax = mw_ext[4] + 0.5) +
+  ggspatial::annotation_scale(location = 'tr', 
+                              text_family = 'Ebrima',
+                              text_col = 'white',
+                              text_face = 'bold',
+                              pad_x = unit(0.9, "cm"),
+                              pad_y = unit(1.2, "cm"),
+                              width_hint = 0.2) +
+  labs(fill = 'Elevation (m)') +
+  coord_equal()
+plot_2
+```
+
+```{r}
+#| eval: false
+ggsave(file.path('figures', 'Maungawhau_FPS.png'),
+       plot = plot_2, bg = 'white',
+       height = 18.17, width = 29.7, units = 'cm')
+```
+
+### FPS zoomed in
+
+```{r}
+hss <- rast(list("Before" = mw_hs, "After" = mw_fps_hs)) |>
+  crop(y = ext(c('xmin' = 2667500, 'xmax' = 2667650,
+                 'ymin' = 6479375,  'ymax' = 6479525))) |>
+  as.data.frame(xy = TRUE, na.rm = FALSE) |>
+  pivot_longer(cols = c(Before, After),
+               names_to = 'maplayer', values_to = 'value') |>
+  mutate(maplayer = factor(maplayer, 
+                           levels = c('Before', 'After'),
+                           ordered = TRUE))
+```
+
+```{r}
+
+zoom_1 <-
+ggplot(hss) +
+  geom_raster(aes(x = x , y = y, fill = value, group = maplayer),
+              show.legend = FALSE) +
+  annotate(geom = 'rect', 
+           'xmin' = 2667500, 'xmax' = 2667650,
+           'ymin' = 6479375,  'ymax' = 6479525,
+           colour = 'grey20', fill = NA) +
+  scale_fill_gradient(low = '#000000', high = "#ffffff") +
+  facet_wrap(~maplayer) +
+  theme_void() +
+  theme(text = element_text(family = 'Ebrima',
+                            size = 18)) +
+  coord_equal()
+zoom_1
+```
+
+```{r}
+ggsave(
+  file.path('figures', 'DEM_zoom_01.png'),
+  plot = zoom_1, bg = 'white',
+       height = 18.17, width = 29.7, units = 'cm')
+```
+
+### FPS classified slope, zoomed in
+
+```{r}
+mw_slp <- terrain(mw) # slope is the default output of this tool
+mw_fps_slp <- terrain(mw_fps)
+slps <- rast(list(mw_slp, mw_fps_slp))
+names(slps) <- c('Before', 'After')
+```
+
+```{r}
+slp <- slps |>
+  crop(y = ext(c('xmin' = 2667500, 'xmax' = 2667650,
+                 'ymin' = 6479375,  'ymax' = 6479525))) |>
+  as.data.frame(xy = TRUE, na.rm = FALSE) |>
+  pivot_longer(cols = c(Before, After),
+               names_to = 'maplayer', values_to = 'value') |>
+  mutate(maplayer = factor(maplayer,
+                           levels = c('Before', 'After'), 
+                           ordered = TRUE),
+         value_lab = case_when(value <  3 ~ 'A',
+                               value <  7 ~ 'B',                         
+                               value < 11 ~ 'C-',
+                               value < 15 ~ 'C+',
+                               value < 25 ~ 'D',
+                               value < 35 ~ 'E',
+                               value < 42 ~ 'F',
+                               value < 60 ~ 'G',
+                               TRUE ~ NA_character_))
+
+hss_bef <- dplyr::filter(hss, maplayer == 'Before')
+hss_aft <- dplyr::filter(hss, maplayer == 'After')
+```
+
+Plotting separately for annotation reasons
+
+```{r}
+zoom_2a <-
+ggplot(dplyr::filter(slp, maplayer == 'Before')) +
+  annotate(geom = 'raster', x = hss_bef$x, y = hss_bef$y,
+           fill = scales::colour_ramp(
+             # - 0.07 makes the HS a little darker
+             c("black", "white"))(hss_bef$value - 0.07)) +
+  geom_raster(aes(x = x , y = y, fill = value_lab),
+              alpha = 0.5) +
+  annotate(geom = 'rect', 
+           'xmin' = 2667500.5, 'xmax' = 2667650.5,
+           'ymin' = 6479375.5, 'ymax' = 6479525.5,
+           colour = 'grey20', fill = NA) +
+  scale_fill_scico_d(palette = 'batlow') +
+  theme_void() +
+  labs(fill = 'Slope Class') +
+  theme(text = element_text(family = 'Ebrima',
+                            size = 18),
+        legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_legend(nrow = 1)) +
+  coord_equal() +
+  ggtitle('Before')
+
+zoom_2b <-
+ggplot(dplyr::filter(slp, maplayer == 'After')) +
+  annotate(geom = 'raster', x = hss_aft$x, y = hss_aft$y,
+           fill = scales::colour_ramp(
+             c("black", "white"))(hss_aft$value-0.07)) +
+  geom_raster(aes(x = x , y = y, fill = value_lab),
+              alpha = 0.5) +
+  annotate(geom = 'rect', 
+           'xmin' = 2667500.5, 'xmax' = 2667650.5,
+           'ymin' = 6479375.5, 'ymax' = 6479525.5,
+           colour = 'grey20', fill = NA) +
+  scale_fill_scico_d(palette = 'batlow') +
+  theme_void() +
+  labs(fill = 'Slope Class') +
+  theme(text = element_text(family = 'Ebrima',
+                            size = 18),
+        legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_legend(nrow = 1)) +
+  coord_equal() +
+  ggtitle('After')
+
+zoom_2 <-
+(zoom_2a | zoom_2b) + 
+  plot_layout(guides = 'collect') & theme(legend.position = 'bottom')
+zoom_2
+```
+
+```{r}
+ggsave(
+  file.path('figures', 'DEM_zoom_02.png'),
+  plot = zoom_2, bg = 'white',
+  height = 18.17, width = 29.7, units = 'cm')
+```
+
+### ROTO
+
+```{r}
+# prepped earlier off some of the horizons pg DSM
+kumeroa_hs <- rast('Kumeroa_HSH_1m.tif')
+kumeroa <- rast('Kumeroa_DSM_1m.tif')
+
+kumeroa_roto_hs <- rast('Kumeroa_ROTO_FPS_HSH_1m.tif')
+kumeroa_roto <- rast('Kumeroa_ROTO_FPS_DSM_1m.tif')
+```
+
+```{r}
+kss <- rast(list("Before" = kumeroa_hs, "After" = kumeroa_roto_hs)) |>
+  crop(y = ext(c('xmin' = 1855500, 'xmax' = 1856500,
+                 'ymin' = 5531000,  'ymax' = 5532000))) |>
+  as.data.frame(xy = TRUE, na.rm = FALSE) |>
+  pivot_longer(cols = c(Before, After),
+               names_to = 'maplayer', values_to = 'value') |>
+  mutate(maplayer = factor(maplayer, levels = c('Before', 'After'), 
+                           ordered = TRUE))
+```
+
+```{r}
+zoom_roto <-
+ggplot(kss) +
+  geom_raster(aes(x = x , y = y, fill = value, group = maplayer),
+              show.legend = FALSE) +
+  annotate(geom = 'rect', 
+           'xmin' = 1855500.5, 'xmax' = 1856500.5,
+           'ymin' = 5531000.5,  'ymax' = 5532000.5,
+           colour = 'grey20', fill = NA) +
+  scale_fill_gradient(low = '#000000', high = "#ffffff") +
+  facet_wrap(~maplayer) +
+  theme_void() +
+  theme(text = element_text(family = 'Ebrima',
+                            size = 18),
+        strip.text = element_text(size = 22)) +
+  coord_equal()
+
+zoom_roto
+```
+
+```{r}
+ggsave(
+  file.path('figures', 'DEM_roto_zoom.png'),
+  plot = zoom_roto, bg = 'white',
+  height = 18.17, width = 29.7, units = 'cm')
+```
+
+### ROTO classified slope
+
+```{r}
+kumeroa_slp <- terrain(kumeroa)
+kumeroa_roto_slp <- terrain(kumeroa_roto)
+k_slps <- rast(list(kumeroa_slp, kumeroa_roto_slp))
+names(k_slps) <- c('Before', 'After')
+```
+
+```{r}
+k_slps_df <- k_slps |>
+  crop(y = ext(c('xmin' = 1855500, 'xmax' = 1856500,
+                 'ymin' = 5531000, 'ymax' = 5532000))) |>
+  as.data.frame(xy = TRUE, na.rm = FALSE) |>
+  pivot_longer(cols = c(Before, After),
+               names_to = 'maplayer', values_to = 'value') |>
+  mutate(maplayer = factor(maplayer,
+                           levels = c('Before', 'After'), 
+                           ordered = TRUE),
+         value_lab = case_when(value <  3 ~ 'A',
+                               value <  7 ~ 'B',                         
+                               value < 11 ~ 'C-',
+                               value < 15 ~ 'C+',
+                               value < 25 ~ 'D',
+                               value < 35 ~ 'E',
+                               value < 42 ~ 'F',
+                               value < 100 ~ 'G',
+                               TRUE ~ NA_character_))
+
+kss_bef <- dplyr::filter(kss, maplayer == 'Before') |>
+  mutate(val_scl = scales::rescale(value, to = c(0, 1)))
+kss_aft <- dplyr::filter(kss, maplayer == 'After') |>
+  mutate(val_scl = scales::rescale(value, to = c(0, 1)))
+```
+
+```{r}
+zoom_3a <-
+ggplot(dplyr::filter(k_slps_df, maplayer == 'Before')) +
+  annotate(geom = 'raster', x = kss_bef$x, y = kss_bef$y,
+           fill = scales::colour_ramp(
+             c("black", "white"))(kss_bef$val_scl)) +
+  geom_raster(aes(x = x , y = y, fill = value_lab),
+              alpha = 0.5) +
+  # add half a cell to make the borders line up *sigh*
+  annotate(geom = 'rect', 
+           'xmin' = 1855500.5, 'xmax' = 1856500.5,
+           'ymin' = 5531000.5, 'ymax' = 5532000.5,
+           colour = 'grey20', fill = NA) +
+  scale_fill_scico_d(palette = 'batlow') +
+  theme_void() +
+  labs(fill = 'Slope Class') +
+  theme(text = element_text(family = 'Ebrima',
+                            size = 18),
+        legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_legend(nrow = 1)) +
+  coord_equal() +
+  ggtitle('Before')
+
+zoom_3b <-
+ggplot(dplyr::filter(k_slps_df, maplayer == 'After')) +
+  annotate(geom = 'raster', x = kss_aft$x, y = kss_aft$y,
+           fill = scales::colour_ramp(
+             c("black", "white"))(kss_aft$val_scl)) +
+ geom_raster(aes(x = x , y = y, fill = value_lab),
+             alpha = 0.5) +
+  annotate(geom = 'rect', 
+           'xmin' = 1855500.5, 'xmax' = 1856500.5,
+           'ymin' = 5531000.5,  'ymax' = 5532000.5,
+           colour = 'grey20', fill = NA) +
+  scale_fill_scico_d(palette = 'batlow') +
+  theme_void() +
+  labs(fill = 'Slope Class') +
+  theme(text = element_text(family = 'Ebrima',
+                            size = 18),
+        legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  guides(fill = guide_legend(nrow = 1)) +
+  coord_equal() +
+  ggtitle('After')
+
+zoom_3 <-
+(zoom_3a | zoom_3b) + 
+  plot_layout(guides = 'collect') & theme(legend.position = 'bottom')
+
+zoom_3
+```
+
+```{r}
+ggsave(
+  file.path('figures', 'DEM_zoom_roto_slope.png'),
+  plot = zoom_3, bg = 'white',
+  height = 18.17, width = 29.7, units = 'cm')
+```
+
+#### Stats
+
+How much extra A slope did that clean-up create?
+
+```{r}
+k_slp_rcl <- matrix(c(-Inf,   3, 1, # 'A'
+                         3,   7, 2, # 'B'
+                         7,  11, 3, # 'C-'
+                        11,  15, 4, # 'C+'
+                        15,  25, 5, # 'D'
+                        25,  35, 6, # 'E'
+                        35,  42, 7, # 'F'
+                        42, Inf, 8  # 'G'
+                      ), ncol = 3, byrow = TRUE)
+
+k_slp_zn <- classify(kumeroa_slp, k_slp_rcl)
+k_roto_slp_zn <- classify(kumeroa_roto_slp, k_slp_rcl)
+
+freq(k_slp_zn)[1,3] / 10000 # 225 ha
+
+freq(k_roto_slp_zn)[1,3] / 10000 # 638 ha (!) -- 2.8x
+```
+
+### Aggregation
+
+to 10m cells
+
+```{r}
+# agg-then-derive
+mw_fps_10 <- aggregate(mw_fps, 10, cores = 3)
+mw_fps_slp_10 <- terrain(mw_fps_10) 
+
+# derive-then-agg
+mw_fps_slp_10b <- aggregate(mw_fps_slp, 10, cores = 3)
+
+# derive-then-smooth-then-agg
+circ10 <- focalMat(mw, 4, type = 'circle') # 9x9 cells
+mw_fps_slp_fm10 <- focal(mw_fps_slp, w = circ10, fun = 'mean')
+mw_fps_slp_10c <- aggregate(mw_fps_slp_fm10, 10, cores = 3)
+
+# smooth-then-agg-then-derive
+mw_fps_fm <- focal(mw_fps, w = circ10, fun = 'mean')
+mw_fps_fm_10 <- aggregate(mw_fps_fm, 10, cores = 3)
+mw_fps_slp_10d <- terrain(mw_fps_fm_10)
+
+
+slps_10 <- rast(list('a_d'   = mw_fps_slp_10, 
+                     'd_a'   = mw_fps_slp_10b,
+                     'd_s_a' = mw_fps_slp_10c,
+                     's_a_d' = mw_fps_slp_10d)) |>
+  trim()
+```
+
+hillshades for all
+
+```{r}
+# can't input a stack tho
+hss_10 <- hillshader(raster::raster(mw_fps_10))
+hss_10 <- rast(hss_10)
+crs(hss_10) <- crs(slps_10)
+```
+
+```{r}
+aggs <- slps_10 |>
+  as.data.frame(xy = TRUE, na.rm = FALSE) |>
+  pivot_longer(cols = c('a_d', 'd_a', 'd_s_a', 's_a_d'),
+               names_to = 'maplayer', values_to = 'value') |>
+  
+  mutate(maplayer = factor(maplayer,
+                           levels = c('a_d', 'd_a', 'd_s_a', 's_a_d'), 
+                           ordered = FALSE),
+         value_lab = case_when(value <   3 ~ 'A',
+                               value <   7 ~ 'B',                         
+                               value <  11 ~ 'C-',
+                               value <  15 ~ 'C+',
+                               value <  25 ~ 'D',
+                               value <  35 ~ 'E',
+                               value <  42 ~ 'F',
+                               value < 100 ~ 'G',
+                               TRUE ~ NA_character_))
+
+orig_slp <- mw_fps_slp |>
+  as.data.frame(xy = TRUE, na.rm = FALSE) |>
+   mutate(slope_lab = case_when(slope <   3 ~ 'A',
+                                slope <   7 ~ 'B',                         
+                                slope <  11 ~ 'C-',
+                                slope <  15 ~ 'C+',
+                                slope <  25 ~ 'D',
+                                slope <  35 ~ 'E',
+                                slope <  42 ~ 'F',
+                                slope < 100 ~ 'G',
+                               TRUE ~ NA_character_))
+
+hss_10_df <- crop(hss_10, slps_10, snap = 'in') |>
+  as.data.frame(xy = TRUE, na.rm = FALSE)
+```
+
+```{r}
+slps10_ext <- ext(slps_10)
+
+zoom_orig <-
+  ggplot(orig_slp) +
+    annotate(geom = 'raster', x = mw_fps_hsh_df$x, y = mw_fps_hsh_df$y,
+             fill = scales::colour_ramp(
+               c("black", "white"))(mw_fps_hsh_df$layer)) +
+    geom_raster(aes(x = x , y = y, fill = slope_lab),
+                alpha = 0.5, show.legend = FALSE) +
+    annotate(geom = 'rect', 
+             'xmin' = mw_ext[1] , 'xmax' = mw_ext[2],
+             'ymin' = mw_ext[3] , 'ymax' = mw_ext[4],
+             colour = 'grey20', fill = NA) +
+    scale_fill_scico_d(palette = 'batlow') +
+    theme_void() +
+    labs(fill = 'Slope Class') +
+    theme(text = element_text(family = 'Ebrima',
+                              size = 12),
+          legend.position = 'bottom',
+          plot.title = element_text(hjust = 0.5)) +
+    coord_equal() +
+    ggtitle('original')
+
+zoom_4a <-
+  ggplot(dplyr::filter(aggs, maplayer == 'a_d')) +
+    annotate(geom = 'raster', x = hss_10_df$x, y = hss_10_df$y,
+             fill = scales::colour_ramp(
+               c("black", "white"))(hss_10_df$layer)) +
+    geom_raster(aes(x = x , y = y, fill = value_lab),
+                alpha = 0.5) +
+    annotate(geom = 'rect', 
+             'xmin' = slps10_ext[1] , 'xmax' = slps10_ext[2],
+             'ymin' = slps10_ext[3] , 'ymax' = slps10_ext[4],
+             colour = 'grey20', fill = NA) +
+    scale_fill_scico_d(palette = 'batlow') +
+    theme_void() +
+    labs(fill = 'Slope Class') +
+    theme(text = element_text(family = 'Ebrima',
+                              size = 10),
+          legend.position = 'bottom',
+          plot.title = element_text(hjust = 0.5)) +
+    guides(fill = guide_legend(nrow = 1)) +
+    coord_equal() +
+    ggtitle('aggregate then derive')
+
+zoom_4b <-
+  ggplot(dplyr::filter(aggs, maplayer == 'd_a')) +
+    annotate(geom = 'raster', x = hss_10_df$x, y = hss_10_df$y,
+             fill = scales::colour_ramp(
+               c("black", "white"))(hss_10_df$layer)) +
+    geom_raster(aes(x = x , y = y, fill = value_lab),
+                alpha = 0.5, show.legend = FALSE) +
+    annotate(geom = 'rect', 
+             'xmin' = slps10_ext[1] , 'xmax' = slps10_ext[2],
+             'ymin' = slps10_ext[3] , 'ymax' = slps10_ext[4],
+             colour = 'grey20', fill = NA) +
+    scale_fill_scico_d(palette = 'batlow') +
+    theme_void() +
+    labs(fill = 'Slope Class') +
+    theme(text = element_text(family = 'Ebrima',
+                              size = 10),
+          legend.position = 'bottom',
+          plot.title = element_text(hjust = 0.5)) +
+    coord_equal() +
+    ggtitle('derive then aggregate')
+
+zoom_4c <-
+  ggplot(dplyr::filter(aggs, maplayer == 'd_s_a')) +
+    annotate(geom = 'raster', x = hss_10_df$x, y = hss_10_df$y,
+             fill = scales::colour_ramp(
+               c("black", "white"))(hss_10_df$layer)) +
+    geom_raster(aes(x = x , y = y, fill = value_lab),
+                alpha = 0.5, show.legend = FALSE) +
+    annotate(geom = 'rect', 
+             'xmin' = slps10_ext[1] , 'xmax' = slps10_ext[2],
+             'ymin' = slps10_ext[3] , 'ymax' = slps10_ext[4],
+             colour = 'grey20', fill = NA) +
+    scale_fill_scico_d(palette = 'batlow') +
+    theme_void() +
+    labs(fill = 'Slope Class') +
+    theme(text = element_text(family = 'Ebrima',
+                              size = 10),
+          legend.position = 'bottom',
+          plot.title = element_text(hjust = 0.5)) +
+    coord_equal() +
+    ggtitle('derive, smooth, aggregate')
+
+zoom_4d <-
+  ggplot(dplyr::filter(aggs, maplayer == 's_a_d')) +
+    annotate(geom = 'raster', x = hss_10_df$x, y = hss_10_df$y,
+             fill = scales::colour_ramp(
+               c("black", "white"))(hss_10_df$layer)) +
+    geom_raster(aes(x = x , y = y, fill = value_lab),
+                alpha = 0.5, show.legend = FALSE) +
+    annotate(geom = 'rect', 
+             'xmin' = slps10_ext[1] , 'xmax' = slps10_ext[2],
+             'ymin' = slps10_ext[3] , 'ymax' = slps10_ext[4],
+             colour = 'grey20', fill = NA) +
+    scale_fill_scico_d(palette = 'batlow') +
+    theme_void() +
+    labs(fill = 'Slope Class') +
+    theme(text = element_text(family = 'Ebrima',
+                              size = 10),
+          legend.position = 'bottom',
+          plot.title = element_text(hjust = 0.5)) +
+    coord_equal() +
+    ggtitle('smooth, derive, aggregate')
+
+zoom_4 <-
+ (zoom_orig | (zoom_4a | zoom_4b) / (zoom_4c | zoom_4d)) + 
+  plot_layout(guides = 'collect') & theme(legend.position = 'bottom',
+                                          legend.justification = 'center')
+zoom_4
+```
+
+```{r}
+ggsave(
+  file.path('figures', 'DEM_aggplot.png'),
+  plot = zoom_4, bg = 'white',
+  height = 29.7, width = 29.7, units = 'cm')
+```
