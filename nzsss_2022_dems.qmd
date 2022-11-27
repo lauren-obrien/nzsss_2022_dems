@@ -64,7 +64,7 @@ library(whitebox)
 Unfortunately `whitebox` can't directly consume in-memory R objects, so we must write the DEM to an on-disk file that it can access:
 
 ```{r}
-writeRaster(mw, 'maungawhau_hr.tif', 
+writeRaster(mw, file.path('outputs', 'maungawhau_hr.tif'), 
             datatype = 'FLT4S', gdal = ('COMPRESS=LZW'),
             overwrite = TRUE)
 ```
@@ -73,8 +73,8 @@ Now we can denoise. The default settings for the Feature Preserving Smoothing to
 
 ```{r}
 wbt_feature_preserving_smoothing(
-  dem       = 'maungawhau_hr.tif',
-  output    = 'maungawhau_hr_FPS.tif',
+  dem       = file.path('outputs', 'maungawhau_hr.tif'),
+  output    = file.path('outputs', 'maungawhau_hr_FPS.tif'),
   filter    = 11,
   norm_diff = 15,
   num_iter  = 3,
@@ -83,7 +83,7 @@ wbt_feature_preserving_smoothing(
   compress_rasters = TRUE
 )
 
-mw_fps <- rast('maungawhau_hr_FPS.tif')
+mw_fps <- rast(file.path('outputs', 'maungawhau_hr_FPS.tif'))
 ```
 
 The effect of this tool is quite subtle; the easiest way to quickly check the output is visually, by comparing before-and-after hillshades:
@@ -148,9 +148,9 @@ ggplot(hss) +
                             size = 18)) +
   coord_equal()
 
-ggsave(
-  file.path('figures', 'DEM_zoom_01.png'),
-  plot = zoom_1, bg = 'white')
+#ggsave(
+#  file.path('figures', 'DEM_zoom_01.png'),
+#  plot = zoom_1, bg = 'white')
 
 zoom_1
 ```
@@ -265,11 +265,11 @@ data prepped earlier, just plotting:
 
 ```{r}
 # prepped earlier off some of the horizons pg DSM
-kumeroa_hs <- rast('Kumeroa_HSH_1m.tif')
-kumeroa <- rast('Kumeroa_DSM_1m.tif')
+kumeroa_hs <- rast('inputs/Kumeroa_HSH_1m.tif')
+kumeroa <- rast('inputs/Kumeroa_DSM_1m.tif')
 
-kumeroa_roto_hs <- rast('Kumeroa_ROTO_FPS_HSH_1m.tif')
-kumeroa_roto <- rast('Kumeroa_ROTO_FPS_DSM_1m.tif')
+kumeroa_roto_hs <- rast('inputs/Kumeroa_ROTO_FPS_HSH_1m.tif')
+kumeroa_roto <- rast('inputs/Kumeroa_ROTO_FPS_DSM_1m.tif')
 
 # leaflet
 ```
